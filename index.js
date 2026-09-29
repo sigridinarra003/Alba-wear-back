@@ -33,9 +33,9 @@ app.get('/api/productos/:id', (req, res) => {
   });
 });
 
-// 3. Crear un nuevo producto
+// 3. Crear un nuevo producto (Solo Admin)
 app.post('/api/productos', (req, res) => {
-  const { nombre, precio, imagen, descripcion, id_categoria, rolUsuario } = req.body;
+  const { nombre, precio, imagen, descripcion, id_categoria, es_destacado, rolUsuario } = req.body;
 
   if (rolUsuario !== 'admin') {
     return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de administrador.' });
@@ -46,10 +46,11 @@ app.post('/api/productos', (req, res) => {
     nombre: nombre,
     descripcion: descripcion || '',
     precio: precio,
-    stock: 10,       // Stock por defecto para que no de error
-    id_talle: 1,  // Por si tu tabla lo pide
+    stock: 10,                            // Stock por defecto para satisfacer NOT NULL
+    id_talle: 1,                          // Talle por defecto para satisfacer NOT NULL
     imagen: imagen || '/img/placeholder.jpg',
-    id_categoria: id_categoria
+    id_categoria: id_categoria || 1,
+    es_destacado: es_destacado ? 1 : 0    // Guardamos 1 si es destacado, 0 si no
   };
 
   const query = 'INSERT INTO productos SET ?';
@@ -63,11 +64,64 @@ app.post('/api/productos', (req, res) => {
   });
 });
 
+// 4. Editar / Actualizar un producto existente (Solo Admin)
+app.put('/api/productos/:id', (req, res) => {
+  const { id } = req.params;
+  const { nombre, precio, imagen, descripcion, id_categoria, es_destacado, rolUsuario } = req.body;
+
+  if (rolUsuario !== 'admin') {
+    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de administrador.' });
+  }
+
+  const query = `
+    UPDATE productos 
+    SET nombre = ?, precio = ?, imagen = ?, descripcion = ?, id_categoria = ?, es_destacado = ?
+    WHERE id_producto = ?
+  `;
+
+  const valores = [
+    nombre,
+    precio,
+    imagen || '/img/placeholder.jpg',
+    descripcion || '',
+    id_categoria,
+    es_destacado ? 1 : 0,
+    id
+  ];
+
+  db.query(query, valores, (err, result) => {
+    if (err) {
+      console.error('❌ Error al editar producto en MySQL:', err);
+      return res.status(500).json({ error: 'Error al actualizar el producto en la base de datos' });
+    }
+    res.json({ mensaje: 'Producto actualizado con éxito' });
+  });
+});
+
+// 5. Eliminar producto (Solo Admin)
+app.delete('/api/productos/:id', (req, res) => {
+  const { id } = req.params;
+  const { rolUsuario } = req.body;
+
+  if (rolUsuario !== 'admin') {
+    return res.status(403).json({ error: 'Acceso denegado. No tenés permisos.' });
+  }
+
+  const query = 'DELETE FROM productos WHERE id_producto = ?';
+
+  db.query(query, [id], (err, result) => {
+    if (err) {
+      console.error('❌ Error al eliminar producto:', err);
+      return res.status(500).json({ error: 'Error al eliminar el producto' });
+    }
+    res.json({ mensaje: 'Producto eliminado correctamente' });
+  });
+});
+
 // ==========================================
 // 📂 RUTAS DE CATEGORÍAS Y TALLES
 // ==========================================
 
-// Obtener todas las categorías
 app.get('/api/categorias', (req, res) => {
   const query = 'SELECT * FROM categorias';
   db.query(query, (err, results) => {
@@ -76,7 +130,6 @@ app.get('/api/categorias', (req, res) => {
   });
 });
 
-// Obtener todos los talles
 app.get('/api/talles', (req, res) => {
   const query = 'SELECT * FROM talle';
   db.query(query, (err, results) => {
@@ -86,10 +139,9 @@ app.get('/api/talles', (req, res) => {
 });
 
 // ==========================================
-// 👤 RUTAS DE USUARIOS / LOGIN
+// 👤 RUTAS DE USUARIOS / LOGIN Y REGISTRO
 // ==========================================
 
-// Login de usuario
 app.post('/api/usuarios/login', (req, res) => {
   const { correo, contrasena } = req.body;
   
@@ -120,60 +172,10 @@ app.post('/api/usuarios/login', (req, res) => {
   });
 });
 
-
-// ==========================================
-// 🛠️ RUTAS DE ADMINISTRACIÓN DE PRODUCTOS
-// ==========================================
-
-// 1. CREAR PRODUCTO (Solo Admin)
-app.post('/api/productos', (req, res) => {
-  const { nombre, precio, imagen, descripcion, rolUsuario } = req.body;
-
-  // Validación de seguridad en el backend
-  if (rolUsuario !== 'admin') {
-    return res.status(403).json({ error: 'Acceso denegado. Se requiere rol de administrador.' });
-  }
-
-  const query = 'INSERT INTO productos (nombre, precio, imagen, descripcion) VALUES (?, ?, ?, ?)';
-  
-  db.query(query, [nombre, precio, imagen, descripcion], (err, result) => {
-    if (err) {
-      console.error('❌ Error al crear producto:', err);
-      return res.status(500).json({ error: 'Error al guardar el producto en la base de datos' });
-    }
-    res.status(201).json({ mensaje: 'Producto creado con éxito', id: result.insertId });
-  });
-});
-
-// 2. ELIMINAR PRODUCTO (Solo Admin)
-app.delete('/api/productos/:id', (req, res) => {
-  const { id } = req.params;
-  const { rolUsuario } = req.body; // O lo podés validar por headers/query según prefieras
-
-  if (rolUsuario !== 'admin') {
-    return res.status(403).json({ error: 'Acceso denegado. No tenés permisos.' });
-  }
-
-  const query = 'DELETE FROM productos WHERE id_producto = ?'; // Ajustá el nombre de la columna ID si es distinta
-
-  db.query(query, [id], (err, result) => {
-    if (err) {
-      console.error('❌ Error al eliminar producto:', err);
-      return res.status(500).json({ error: 'Error al eliminar el producto' });
-    }
-    res.json({ mensaje: 'Producto eliminado correctamente' });
-  });
-});
-
-
-
-
 app.post('/api/usuarios/registro', (req, res) => {
-  // Recibimos los datos que manda React
   const { nombre, apellido, correo, contrasena } = req.body;
   const rol = 'usuario'; 
 
-  
   const query = 'INSERT INTO usuarios (nombres, apellidos, correo, contrasena, rol) VALUES (?, ?, ?, ?, ?)';
   
   db.query(query, [nombre, apellido, correo, contrasena, rol], (err, result) => {
